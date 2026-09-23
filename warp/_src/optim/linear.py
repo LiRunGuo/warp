@@ -1287,6 +1287,7 @@ class LinearSolverState:
         tol: relative tolerance for the residual, as a ratio of the right-hand-side norm
         atol: absolute tolerance for the residual
         maxiter: maximum number of iterations to perform before aborting. Defaults to the system size.
+            For batched systems, defaults to ``A.max_batch_length`` if provided, otherwise to the total system size.
         M: optional preconditioner.
         callback: function to be called every ``check_every`` iteration with the current iteration number, residual and tolerance.
         check_every: number of iterations every which to call ``callback`` and check the residual against the tolerance.
@@ -1327,7 +1328,11 @@ class LinearSolverState:
         self._dofs_per_entry = _dofs_per_entry(b.dtype)
 
         if maxiter is None or maxiter == 0:
-            maxiter = _scalar_dof_count(b) // self._batch_count
+            # Subproblems iterate together, so the budget must cover the largest one.
+            # Without max_batch_length, the total size is a bound that avoids reading offsets on the host.
+            maxiter = _scalar_dof_count(b)
+            if self._A.max_batch_length is not None:
+                maxiter = min(maxiter, self._A.max_batch_length)
         self._maxiter = int(maxiter)
 
         self._cur_iter_and_condition = wp.empty((2,), dtype=int, device=self._device)
@@ -1610,6 +1615,7 @@ def cg(
         tol: relative tolerance for the residual, as a ratio of the right-hand-side norm
         atol: absolute tolerance for the residual
         maxiter: maximum number of iterations to perform before aborting. Defaults to the system size.
+            For batched systems, defaults to ``A.max_batch_length`` if provided, otherwise to the total system size.
             When ``restart`` is enabled, CG performs complete restart cycles and may exceed
             ``maxiter`` by up to ``restart - 1`` iterations.
         M: optional left-preconditioner, ideally chosen such that ``M A`` is close to identity.
@@ -1863,6 +1869,7 @@ def cr(
         tol: relative tolerance for the residual, as a ratio of the right-hand-side norm
         atol: absolute tolerance for the residual
         maxiter: maximum number of iterations to perform before aborting. Defaults to the system size.
+            For batched systems, defaults to ``A.max_batch_length`` if provided, otherwise to the total system size.
             When ``restart`` is enabled, CR performs complete restart cycles and may exceed
             ``maxiter`` by up to ``restart - 1`` iterations.
         M: optional left-preconditioner, ideally chosen such that ``M A`` is close to identity.
@@ -2150,6 +2157,7 @@ def bicgstab(
         tol: relative tolerance for the residual, as a ratio of the right-hand-side norm
         atol: absolute tolerance for the residual
         maxiter: maximum number of iterations to perform before aborting. Defaults to the system size.
+            For batched systems, defaults to ``A.max_batch_length`` if provided, otherwise to the total system size.
         M: optional left- or right-preconditioner, ideally chosen such that ``M A`` (resp ``A M``) is close to identity.
         callback: function to be called every `check_every` iteration with the current iteration number, residual and tolerance.
             If `check_every` is 0, the callback should be a Warp kernel.
@@ -2493,6 +2501,7 @@ def gmres(
         atol: absolute tolerance for the residual
         restart: The restart parameter, i.e, the `k` in `GMRES[k]`. In general, increasing this parameter reduces the number of iterations but increases memory consumption.
         maxiter: maximum number of iterations to perform before aborting. Defaults to the system size.
+            For batched systems, defaults to ``A.max_batch_length`` if provided, otherwise to the total system size.
             Note that the current implementation always perform `restart` iterations at a time, and as a result may exceed the specified maximum number of iterations by ``restart-1``.
         M: optional left- or right-preconditioner, ideally chosen such that ``M A`` (resp ``A M``) is close to identity.
         callback: function to be called every `check_every` iteration with the current iteration number, residual and tolerance.

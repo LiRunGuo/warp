@@ -555,6 +555,26 @@ def test_batched_inactive_tail(test, device):
         np.testing.assert_allclose(x.numpy(), expected, rtol=1.0e-7, atol=1.0e-7)
 
 
+def test_batched_uneven_default_maxiter(test, device):
+    # Distinct eigenvalues force the size-9 subproblem to take nine Krylov iterations,
+    # more than the average batch length of five.
+    batch_sizes = [1, 9]
+    diag_np = np.concatenate([np.arange(1, n + 1, dtype=np.float64) for n in batch_sizes])
+    diag = wp.array(diag_np, dtype=wp.float64, device=device)
+    b = wp.ones(diag_np.shape[0], dtype=wp.float64, device=device)
+    offsets = _batch_offsets(batch_sizes, device)
+
+    for max_batch_length in (None, max(batch_sizes)):
+        A = aslinearoperator(diag, batch_offsets=offsets, max_batch_length=max_batch_length)
+        for solver in (cg, cr, bicgstab, gmres):
+            with test.subTest(solver=solver.__name__, max_batch_length=max_batch_length):
+                x = wp.zeros_like(b)
+                _niter, err, atol = solver(A, b, x, tol=1.0e-10, check_every=1)
+
+                test.assertLessEqual(err, atol)
+                np.testing.assert_allclose(x.numpy(), 1.0 / diag_np, rtol=1.0e-8)
+
+
 def test_batched_vector_inactive_tail(test, device):
     diag = wp.array(((2.0, 3.0), (4.0, 5.0), (6.0, 7.0)), dtype=wp.vec2d, device=device)
     b = wp.array(((2.0, 6.0), (12.0, 20.0), (100.0, 200.0)), dtype=wp.vec2d, device=device)
@@ -1446,6 +1466,9 @@ add_function_test(TestLinearSolvers, "test_batched_gmres_nonuniform", test_batch
 add_function_test(TestLinearSolvers, "test_batched_nonuniform", test_batched_nonuniform, devices=devices)
 add_function_test(TestLinearSolvers, "test_batched_vector_offsets", test_batched_vector_offsets, devices=devices)
 add_function_test(TestLinearSolvers, "test_batched_inactive_tail", test_batched_inactive_tail, devices=devices)
+add_function_test(
+    TestLinearSolvers, "test_batched_uneven_default_maxiter", test_batched_uneven_default_maxiter, devices=devices
+)
 add_function_test(
     TestLinearSolvers,
     "test_batched_vector_inactive_tail",
