@@ -12,7 +12,19 @@ from warp._src.optim.linear import (
     _create_segmented_tiled_dot_kernels,
     _run_solver_loop,
 )
-from warp.optim.linear import CG, CR, GMRES, BiCGSTAB, aslinearoperator, bicgstab, cg, cr, gmres, preconditioner
+from warp.optim.linear import (
+    CG,
+    CR,
+    GMRES,
+    BiCGSTAB,
+    LinearOperator,
+    aslinearoperator,
+    bicgstab,
+    cg,
+    cr,
+    gmres,
+    preconditioner,
+)
 from warp.sparse import bsr_from_triplets, bsr_identity, bsr_mv, bsr_set_from_triplets, bsr_zeros
 from warp.tests.unittest_utils import *
 
@@ -528,6 +540,24 @@ def test_batched_vector_offsets(test, device):
         x = wp.zeros_like(b)
         solver(A, b, x, tol=1.0e-7, maxiter=4, check_every=1, use_cuda_graph=False, **kwargs)
         np.testing.assert_allclose(x.numpy(), expected, rtol=1.0e-5, atol=1.0e-5)
+
+
+def test_linear_operator_device_string(test, device):
+    diag_np = np.arange(1.0, 9.0)
+    diag = wp.array(diag_np, dtype=wp.float64, device=device)
+    b = wp.ones(diag_np.shape[0], dtype=wp.float64, device=device)
+    matvec = aslinearoperator(diag).matvec
+    n = diag_np.shape[0]
+
+    for batch_offsets in (None, _batch_offsets([3, 5], device)):
+        A = LinearOperator((n, n), wp.float64, device.alias, matvec, batch_offsets=batch_offsets)
+        test.assertEqual(A.device, device)
+
+        for solver in (cg, cr, bicgstab, gmres):
+            with test.subTest(solver=solver.__name__, batched=batch_offsets is not None):
+                x = wp.zeros_like(b)
+                solver(A, b, x, tol=1.0e-10, maxiter=16, check_every=1)
+                np.testing.assert_allclose(x.numpy(), 1.0 / diag_np, rtol=1.0e-8)
 
 
 def test_batched_inactive_tail(test, device):
@@ -1446,6 +1476,9 @@ add_function_test(TestLinearSolvers, "test_batched_gmres_nonuniform", test_batch
 add_function_test(TestLinearSolvers, "test_batched_nonuniform", test_batched_nonuniform, devices=devices)
 add_function_test(TestLinearSolvers, "test_batched_vector_offsets", test_batched_vector_offsets, devices=devices)
 add_function_test(TestLinearSolvers, "test_batched_inactive_tail", test_batched_inactive_tail, devices=devices)
+add_function_test(
+    TestLinearSolvers, "test_linear_operator_device_string", test_linear_operator_device_string, devices=devices
+)
 add_function_test(
     TestLinearSolvers,
     "test_batched_vector_inactive_tail",
